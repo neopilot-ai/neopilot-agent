@@ -1,4 +1,20 @@
-local logger = require("cockpit.logger.logger")
+local logger = require("neopilot.logger.logger")
+
+--- @class TextChangedIEvent
+--- @field buf number
+--- @field file string
+
+--- @class LspPosition
+--- @field character number
+--- @field line number
+
+--- @class LspRange
+--- @field start LspPosition
+--- @field end LspPosition
+
+--- @class LspDefinitionResult
+--- @field range LspRange
+--- @field uri string
 
 --- @param node TSNode
 local function ts_node_to_lsp_position(node)
@@ -25,7 +41,7 @@ local function get_lsp_definitions(buffer, position, cb)
 end
 
 --- @class Lsp
---- @field config CockpitOptions
+--- @field config _neopilotOptions
 local Lsp = {}
 Lsp.__index = Lsp
 
