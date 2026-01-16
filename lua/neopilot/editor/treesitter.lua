@@ -1,141 +1,255 @@
 local geo = require("neopilot.geo")
-local Point = geo.Point
+local Logger = require("neopilot.logger.logger")
 local Range = geo.Range
 
---- @class TSNode
---- @field start fun(self: TSNode): number, number, number
---- @field end_ fun(self: TSNode): number, number, number
---- @field named fun(self: TSNode): boolean
---- @field type fun(self: TSNode): string
---- @field range fun(self: TSNode): number, number, number, number
+--- @class _neopilot.treesitter.TSNode
+--- @field start fun(): number
+--- @field end_ fun(): number
+
+--- @class _neopilot.treesitter.Node
+--- @field start fun(self: _neopilot.treesitter.Node): number, number, number
+--- @field end_ fun(self: _neopilot.treesitter.Node): number, number, number
+--- @field named fun(self: _neopilot.treesitter.Node): boolean
+--- @field type fun(self: _neopilot.treesitter.Node): string
+--- @field range fun(self: _neopilot.treesitter.Node): number, number, number, number
 
 local M = {}
 
-local scope_query = "neopilot-scope"
+local function_query = "neopilot-function"
 local imports_query = "neopilot-imports"
+local fn_call_query = "neopilot-fn-call"
 
-local function tree_root()
-    local buffer = vim.api.nvim_get_current_buf()
-    local lang = vim.bo.ft
-
-    -- Load the parser and the query.
-    local ok, parser = pcall(vim.treesitter.get_parser, buffer, lang)
-    if not ok then
-        return nil
-    end
-
-    local tree = parser:parse()[1]
-    return tree:root()
-end
-
---- @class Scope
---- @field scope TSNode[]
---- @field range Range[]
---- @field buffer number
---- @field cursor Point
-local Scope = {}
-Scope.__index = Scope
-
---- @param cursor Point
 --- @param buffer number
---- @return Scope
-function Scope:new(cursor, buffer)
-    return setmetatable({
-        scope = {},
-        range = {},
-        buffer = buffer,
-        cursor = cursor,
-    }, self)
+---@param lang string
+local function tree_root(buffer, lang)
+  -- Load the parser and the query.
+  local ok, parser = pcall(vim.treesitter.get_parser, buffer, lang)
+  if not ok then
+    return nil
+  end
+
+  local tree = parser:parse()[1]
+  return tree:root()
 end
 
---- @return boolean
-function Scope:has_scope()
-    return #self.range > 0
-end
-
---- @param node TSNode
-function Scope:push(node)
-    local range = Range:from_ts_node(node, self.buffer)
-    if not range:contains(self.cursor) then
-        return
-    end
-
-    table.insert(self.range, range)
-    table.insert(self.scope, node)
-end
-
-function Scope:finalize()
-    assert(#self.range == #self.scope, "range scope mismatch")
-    table.sort(self.range, function(a, b)
-        return a:contains_range(b)
-    end)
-end
-
---- if you want cursor just use Point:from_cursor()
---- @param cursor Point
---- @return Scope | nil
-function M.scopes(cursor)
-    local lang = vim.bo.ft
-    local root = tree_root()
-    if not root then
-        -- consider logging
-        return nil
-    end
-
-    local buffer = vim.api.nvim_get_current_buf()
-    local ok, query = pcall(vim.treesitter.query.get, lang, scope_query)
-
-    if not ok or query == nil then
-        return nil
-    end
-
-    local scope = Scope:new(cursor, buffer)
-    scope:push(root)
-
-    for _, match, _ in query:iter_matches(root, buffer, 0, -1, { all = true }) do
-        for _, nodes in pairs(match) do
-            for _, node in ipairs(nodes) do
-                scope:push(node)
-            end
-        end
-    end
-
-    assert(
-        scope:has_scope(),
-        'get smallest scope failed.  it should never fail since scopeset should contain the "program" scope'
+--- @param context _neopilot.RequestContext
+--- @param cursor _neopilot.Point
+--- @return _neopilot.treesitter.TSNode | nil
+function M.fn_call(context, cursor)
+  local buffer = context.buffer
+  local lang = context.file_type
+  local logger = context.logger:set_area("treesitter")
+  local root = tree_root(buffer, lang)
+  if not root then
+    Logger:error(
+      "unable to find treeroot, this should never happen",
+      "buffer",
+      buffer,
+      "lang",
+      lang
     )
-    scope:finalize()
+    return nil
+  end
 
-    return scope
+  local ok, query = pcall(vim.treesitter.query.get, lang, fn_call_query)
+  if not ok or query == nil then
+    logger:error(
+      "unable to get the fn_call_query",
+      "lang",
+      lang,
+      "buffer",
+      buffer,
+      "ok",
+      type(ok),
+      "query",
+      type(query)
+    )
+    return nil
+  end
+
+  --- likely something that needs to be done with treesitter#get_node
+  local found = nil
+  for _, match, _ in query:iter_matches(root, buffer, 0, -1, { all = true }) do
+    for _, nodes in pairs(match) do
+      for _, node in ipairs(nodes) do
+        local range = Range:from_ts_node(node, buffer)
+        if range:contains(cursor) then
+          found = node
+          goto end_of_loops
+        end
+      end
+    end
+  end
+  ::end_of_loops::
+
+  logger:debug("treesitter#fn_call", "found", found ~= nil)
+
+  return found
 end
 
---- @return TSNode[]
-function M.imports()
-    local root = tree_root()
-    if not root then
-        return {}
+--- @class _neopilot.treesitter.Function
+--- @field function_range _neopilot.Range
+--- @field function_node _neopilot.treesitter.TSNode
+--- @field body_range _neopilot.Range
+--- @field body_node _neopilot.treesitter.TSNode
+local Function = {}
+Function.__index = Function
+
+--- uses the function_node to replace the text within vim using nvim_buf_set_text
+--- to replace at the exact function begin / end
+--- @param replace_with string[]
+function Function:replace_text(replace_with)
+  self.function_range:replace_text(replace_with)
+end
+
+--- @param ts_node _neopilot.treesitter.TSNode
+---@param cursor _neopilot.Point
+---@param context _neopilot.RequestContext
+---@return _neopilot.treesitter.Function
+function Function.from_ts_node(ts_node, cursor, context)
+  local ok, query =
+    pcall(vim.treesitter.query.get, context.file_type, function_query)
+  local logger = context.logger:set_area("Function")
+  if not ok or query == nil then
+    logger:fatal("not query or not ok")
+    error("failed")
+  end
+
+  local func = {}
+  for id, node, _ in
+    query:iter_captures(ts_node, context.buffer, 0, -1, { all = true })
+  do
+    local range = Range:from_ts_node(node, context.buffer)
+    local name = query.captures[id]
+    if range:contains(cursor) then
+      if name == "context.function" then
+        func.function_node = node
+        func.function_range = range
+      elseif name == "context.body" then
+        func.body_node = node
+        func.body_range = range
+      end
     end
+  end
 
-    local buffer = vim.api.nvim_get_current_buf()
-    local ok, query = pcall(vim.treesitter.query.get, vim.bo.ft, imports_query)
+  --- NOTE: not all functions have bodies... (lua: local function foo() end)
+  logger:assert(func.function_node ~= nil, "function_node not found")
+  logger:assert(func.function_range ~= nil, "function_range not found")
 
-    if not ok or query == nil then
-        return {}
+  return setmetatable(func, Function)
+end
+
+--- @param context _neopilot.RequestContext
+--- @param cursor _neopilot.Point
+--- @return _neopilot.treesitter.Function?
+function M.containing_function(context, cursor)
+  local buffer = context.buffer
+  local lang = context.file_type
+  local logger = context and context.logger:set_area("treesitter") or Logger
+
+  logger:error("loading lang", "buffer", buffer, "lang", lang)
+  local root = tree_root(buffer, lang)
+  if not root then
+    logger:debug("LSP: could not find tree root")
+    return nil
+  end
+
+  local ok, query = pcall(vim.treesitter.query.get, lang, function_query)
+  if not ok or query == nil then
+    logger:debug(
+      "LSP: not ok or query",
+      "query",
+      vim.inspect(query),
+      "lang",
+      lang,
+      "ok",
+      vim.inspect(ok)
+    )
+    return nil
+  end
+
+  --- @type _neopilot.Range
+  local found_range = nil
+  --- @type _neopilot.treesitter.TSNode
+  local found_node = nil
+  for id, node, _ in query:iter_captures(root, buffer, 0, -1, { all = true }) do
+    local range = Range:from_ts_node(node, buffer)
+    local name = query.captures[id]
+    if name == "context.function" and range:contains(cursor) then
+      if not found_range then
+        found_range = range
+        found_node = node
+      elseif found_range:area() > range:area() then
+        found_range = range
+        found_node = node
+      end
     end
+  end
 
-    local imports = {}
-    for _, match, _ in query:iter_matches(root, buffer, 0, -1, { all = true }) do
-        for id, nodes in pairs(match) do
-            local name = query.captures[id]
-            if name == "import.name" then
-                for _, node in ipairs(nodes) do
-                    table.insert(imports, node)
-                end
-            end
+  logger:debug(
+    "treesitter#containing_function",
+    "found_range",
+    found_range and found_range:to_string() or "found_range is nil"
+  )
+
+  if not found_range then
+    return nil
+  end
+  logger:assert(
+    found_node,
+    "INVARIANT: found_range is not nil but found node is"
+  )
+
+  ok, query = pcall(vim.treesitter.query.get, lang, function_query)
+  if not ok or query == nil then
+    logger:fatal("INVARIANT: found_range ", "range", found_range:to_text())
+    return
+  end
+
+  --- TODO: we need some language specific things here.
+  --- that is because comments above the function needs to considered
+  return Function.from_ts_node(found_node, cursor, context)
+end
+
+--- @param buffer number
+--- @return _neopilot.treesitter.Node[]
+function M.imports(buffer)
+  Logger:assert(false, "not implemented yet", "id", 69420)
+  local lang = vim.bo[buffer].ft
+  local root = tree_root(buffer, lang)
+  if not root then
+    Logger:debug("imports: could not find tree root")
+    return {}
+  end
+
+  local ok, query = pcall(vim.treesitter.query.get, lang, imports_query)
+
+  if not ok or query == nil then
+    Logger:debug(
+      "imports: not ok or query",
+      "query",
+      vim.inspect(query),
+      "lang",
+      lang,
+      "ok",
+      vim.inspect(ok)
+    )
+    return {}
+  end
+
+  local imports = {}
+  for _, match, _ in query:iter_matches(root, buffer, 0, -1, { all = true }) do
+    for id, nodes in pairs(match) do
+      local name = query.captures[id]
+      if name == "import.name" then
+        for _, node in ipairs(nodes) do
+          table.insert(imports, node)
         end
+      end
     end
+  end
 
-    return imports
+  return imports
 end
 
 return M

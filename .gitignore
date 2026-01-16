@@ -1,0 +1,47 @@
+# Dependencies
+.deps/
+deps/
+*.so
+
+# Test artifacts
+luacov.*
+*.out
+*.html
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.log
+
+# Local development
+.nvim/
+plugin/packer_compiled.lua
+
+# Node modules (if any)
+node_modules/
+
+# Local configuration
+local.lua
+
+# Temporary files
+tmp/
+*.tmp
+
+# Coverage reports
+coverage/
+
+# Logs
+*.log
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# LuaRocks
+*.rockspec
+
+# Packer compiled files
+plugin/packer_compiled.lua

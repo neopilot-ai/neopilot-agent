@@ -3,6 +3,21 @@ local M = {}
 -- Test utilities
 local test_hooks = {}
 
+--- Setup function to initialize the test environment
+function M.setup()
+  -- Add any test setup code here
+  vim.cmd('set rtp+=' .. vim.fn.getcwd())
+  package.path = package.path .. ';' .. vim.fn.getcwd() .. '/lua/?.lua;'
+  package.path = package.path .. ';' .. vim.fn.getcwd() .. '/lua/?/init.lua;'
+  
+  -- Mock any required global functions if they don't exist
+  _G.vim = _G.vim or {}
+  _G.vim.fn = _G.vim.fn or {}
+  _G.vim.api = _G.vim.api or {}
+  
+  -- Add any other mocks needed for tests
+end
+
 --- Register a before_each hook
 function M.before_each(fn)
     table.insert(test_hooks, { type = "before_each", fn = fn })
@@ -47,6 +62,28 @@ function M.create_mock_buffer(lines)
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     end
     return buf
+end
+
+--- Mock vim.notify for testing
+function M.mock_vim_notify()
+    local notifications = {}
+    vim.notify = function(msg, level, opts)
+        table.insert(notifications, {
+            msg = msg,
+            level = level,
+            opts = opts or {}
+        })
+    end
+    return notifications
+end
+
+--- Create a test context with mocks
+--- @return table test_ctx
+function M.create_test_context()
+    return {
+        notifications = M.mock_vim_notify(),
+        -- Add other test context here
+    }
 end
 
 --- Clean up a mock buffer

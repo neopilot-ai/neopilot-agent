@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Assign PRs to the @dependabot user
+    assignees:
+      - "@dependabot"
+    # Add labels to PRs
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Enable version updates for LuaRocks
+  - package-ecosystem: "luarocks"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    assignees:
+      - "@dependabot"
+    labels:
+      - "dependencies"
+      - "lua"
+
+  # Enable version updates for npm (if you have any Node.js dependencies)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    assignees:
+      - "@dependabot"
+    labels:
+      - "dependencies"
+      - "javascript"

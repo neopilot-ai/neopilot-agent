@@ -1,0 +1,43 @@
+# Editor settings
+column_width = 80
+line_endings = "Unix"
+indent_type = "Spaces"
+indent_width = 2
+
+# Quote style ("AutoPreferDouble" or "AutoPreferSingle")
+quote_style = "AutoPreferDouble"
+
+# Table formatting
+indent_style = "Tabs"
+indent_width = 2
+
+# Function call formatting
+call_parentheses = "Always"
+
+# Function definition formatting
+collapse_simple_statement = "Never"
+
+# Table formatting
+align_table_field = true
+
+# Line breaks
+no_call_parentheses = false
+
+# Spaces around operators
+space_around_operator = true
+
+# Spaces in function calls
+space_inside_function_definition_parentheses = false
+space_inside_function_call_parentheses = false
+space_inside_square_brackets = false
+space_inside_curly_braces = false
+
+# Line breaks in tables
+align_table_field = true
+
+# Comments
+respect_markdown_hidden_blocks = true
+
+# Files to include/exclude
+include = ["**/*.lua"]
+# exclude = ["**/vendor/*.lua"]

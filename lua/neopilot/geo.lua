@@ -1,448 +1,313 @@
--- Projection factor for converting 2D coordinates to 1D for efficient comparison
 local project_row = 100000000
 
---- Project a point or row/col to a 1D coordinate for comparison
---- @param point_or_row Point | number
+--- @param point_or_row _neopilot.Point | number
 --- @param col number | nil
 --- @return number
 local function project(point_or_row, col)
-    if type(point_or_row) == "number" then
-        assert(type(col) == "number", "col must be a number when point_or_row is a number")
-        assert(col >= 1, "col must be a positive number")
-        return point_or_row * project_row + col
-    end
-    return point_or_row.row * project_row + point_or_row.col
+  if type(point_or_row) == "number" then
+    return point_or_row * project_row + col
+  end
+  return point_or_row.row * project_row + point_or_row.col
 end
 
---- @class Point
---- @field row number 1-based row number
---- @field col number 1-based column number
+--- stores all values as 1 based
+--- @class _neopilot.Point
+--- @field row number
+--- @field col number
 local Point = {}
 Point.__index = Point
 
---- Create a new Point instance
---- @param row number 1-based row number
---- @param col number 1-based column number
---- @return Point
-function Point:new(row, col)
-    -- Input validation with test-expected error messages
-    if type(row) ~= "number" or row < 1 then
-        error("row must be a positive number", 2)
-    end
-    if type(col) ~= "number" or col < 1 then
-        error("col must be a positive number", 2)
-    end
-    
-    -- Floor the values to ensure they're integers
-    return setmetatable({
-        row = math.floor(row),
-        col = math.floor(col),
-    }, self)
-end
-
---- Create a Point from the current cursor position
---- @return Point
-function Point.from_cursor()
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    return Point:new(cursor[1], cursor[2] + 1) -- Convert from 0-based to 1-based
-end
-
---- Convert to string representation
---- @return string
 function Point:to_string()
-    return string.format("Point(row=%d, col=%d)", self.row, self.col)
-end
-
---- Get the text line at this point's row
---- @param buffer number Buffer handle
---- @return string | nil content of the line, or nil if out of range
-function Point:get_text_line(buffer)
-    assert(buffer and vim.api.nvim_buf_is_valid(buffer), "Invalid buffer handle")
-    
-    local lines = vim.api.nvim_buf_get_lines(buffer, self.row - 1, self.row, false)
-    return lines[1]
-end
-
---- Set the text line at this point's row
---- @param buffer number Buffer handle
---- @param text string Text to set
---- @return boolean success
-function Point:set_text_line(buffer, text)
-    assert(buffer and vim.api.nvim_buf_is_valid(buffer), "Invalid buffer handle")
-    assert(type(text) == "string", "Text must be a string")
-    
-    local ok, _ = pcall(vim.api.nvim_buf_set_lines, buffer, self.row - 1, self.row, false, {text})
-    return ok
-end
-
---- Move the cursor to the end of the current line
-function Point:update_to_end_of_line()
-    local line_length = vim.fn.col("$")
-    self.col = math.max(1, line_length + 1)
-    vim.api.nvim_win_set_cursor(0, {self.row, self.col - 1}) -- Convert to 0-based for nvim_win_set_cursor
-end
-
---- Insert a new line below the current point
---- @param buffer number Buffer handle
---- @return boolean success
-function Point:insert_new_line_below(buffer)
-    assert(buffer and vim.api.nvim_buf_is_valid(buffer), "Invalid buffer handle")
-    
-    local lines = vim.api.nvim_buf_get_lines(buffer, self.row - 1, self.row, false)
-    local ok, _ = pcall(vim.api.nvim_buf_set_lines, buffer, self.row, self.row, false, {
-        string.rep(" ", self.col - 1)
-    })
-    
-    if ok then
-        self.row = self.row + 1
-        self.col = 1
-    end
-    
-    return ok
-end
-
---- Convert to Vim's 0-based row/col format
---- @return number row 0-based row
---- @return number col 0-based column
-function Point:to_vim()
-    return self.row - 1, self.col - 1
-end
-
---- Convert to 0-based index for API calls
---- @return number row 0-based row
---- @return number col 0-based column
-function Point:to_zero_based()
-    return self.row - 1, self.col - 1
-end
-
---- Check if this point is before another point
---- @param other Point
---- @return boolean
-function Point:before(other)
-    assert(getmetatable(other) == Point, "Argument must be a Point")
-    return project(self) < project(other)
-end
-
---- Check if this point is after another point
---- @param other Point
---- @return boolean
-function Point:after(other)
-    assert(getmetatable(other) == Point, "Argument must be a Point")
-    return project(self) > project(other)
-end
-
---- Check if this point is equal to another point
---- @param other Point
---- @return boolean
-function Point:equals(other)
-    if getmetatable(other) ~= Point then return false end
-    return self.row == other.row and self.col == other.col
-end
-
---- Move the point by the given row and column offsets
---- @param row_offset number
---- @param col_offset number
---- @return Point self for chaining
-function Point:move(row_offset, col_offset)
-    self.row = math.max(1, self.row + (row_offset or 0))
-    self.col = math.max(1, self.col + (col_offset or 0))
-    return self
-end
-
---- @class Range
---- @field start Point
---- @field end_ Point
---- @field buffer number
-local Range = {}
-Range.__index = Range
-
----@param buffer number
---- @param start Point
----@param end_ Point
-function Range:new(buffer, start, end_)
-    return setmetatable({
-        start = start,
-        end_ = end_,
-        buffer = buffer,
-    }, self)
-end
-
----@param node TSNode
----@param buffer number
----@return Range
-function Range:from_ts_node(node, buffer)
-    -- ts is zero based
-    local start_row, start_col, _ = node:start()
-    local end_row, end_col, _ = node:end_()
-    local range = {
-        start = Point:from_ts_point(start_row, start_col),
-        end_ = Point:from_ts_point(end_row, end_col),
-        buffer = buffer,
-    }
-
-    return setmetatable(range, self)
-end
-
---- @param point Point
---- @return boolean
-function Range:contains(point)
-    local start = project(self.start)
-    local stop = project(self.end_)
-    local p = project(point)
-    return start <= p and p <= stop
-end
-
---- @return string
-function Range:to_text()
-    local sr, sc = self.start:to_vim()
-    local er, ec = self.end_:to_vim()
-
-    -- note
-    -- this api is 0 index end exclusive for _only_ column
-    if ec == 0 then
-        ec = -1
-        er = er - 1
-    end
-
-    local text = vim.api.nvim_buf_get_text(self.buffer, sr, sc, er, ec, {})
-    return table.concat(text, "\n")
-end
-
---- @param range Range
---- @return boolean
-function Range:contains_range(range)
-    return self.start:lte(range.start) and self.end_:gte(range.end_)
-end
-
-function Range:to_string()
-    return string.format(
-        "range(%s,%s)",
-        self.start:to_string(),
-        self.end_:to_string()
-    )
-end
-
--- Add the missing from_ts_point method to Point class
---- Create a Point from a Tree-sitter point (0-based)
---- @param row number 0-based row
---- @param col number 0-based column
---- @return Point
-function Point.from_ts_point(row, col)
-    return Point:new(row + 1, col + 1)
-end
-
--- Add comparison methods to Point class
---- Check if this point is less than or equal to another point
---- @param other Point
---- @return boolean
-function Point:lte(other)
-    return self:before(other) or self:equals(other)
-end
-
---- Check if this point is greater than or equal to another point
---- @param other Point
---- @return boolean
-function Point:gte(other)
-    return self:after(other) or self:equals(other)
+  return string.format("point(%d,%d)", self.row, self.col)
 end
 
 --- @param buffer number
 --- @return string
 function Point:get_text_line(buffer)
-    local r, _ = self:to_vim()
-    return vim.api.nvim_buf_get_lines(buffer, r, r + 1, true)[1]
+  local r, _ = self:to_vim()
+  return vim.api.nvim_buf_get_lines(buffer, r, r + 1, true)[1]
 end
 
 --- @param buffer number
 --- @param text string
 function Point:set_text_line(buffer, text)
-    local r, _ = self:to_vim()
-    vim.api.nvim_buf_set_lines(buffer, r, r + 1, false, { text })
+  local r, _ = self:to_vim()
+  vim.api.nvim_buf_set_lines(buffer, r, r + 1, false, { text })
 end
 
 function Point:update_to_end_of_line()
-    self.col = vim.fn.col("$") + 1
-    local r, c = self:to_one_zero_index()
-    vim.api.nvim_win_set_cursor(0, { r, c })
-end
-
---- @param buffer number
-function Point:insert_new_line_below(buffer)
-    vim.api.nvim_input("<esc>o")
+  self.col = vim.fn.col("$") + 1
+  local r, c = self:to_one_zero_index()
+  vim.api.nvim_win_set_cursor(0, { r, c })
 end
 
 --- 1 based point
 --- @param row number
 --- @param col number
---- @return Point
+--- @return _neopilot.Point
 function Point:new(row, col)
-    return setmetatable({
-        row = row,
-        col = col,
-    }, self)
+  assert(type(row) == "number", "expected row to be a number")
+  assert(type(col) == "number", "expected col to be a number")
+  return setmetatable({
+    row = row,
+    col = col,
+  }, self)
 end
 
 function Point:from_cursor()
-    local point = setmetatable({
-        row = 0,
-        col = 0,
-    }, self)
+  local point = setmetatable({
+    row = 0,
+    col = 0,
+  }, self)
 
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local cursor_row, cursor_col = cursor[1], cursor[2]
-    point.row = cursor_row
-    point.col = cursor_col + 1
-    return point
+  --- NOTE: win_get_cursor 1, 0 based return
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local cursor_row, cursor_col = cursor[1], cursor[2]
+  point.row = cursor_row
+  point.col = cursor_col + 1
+  return point
+end
+
+--- Point from nvim_buf_get_extmark_by_id returns which is 0 based
+--- @param mark _neopilot.Mark
+function Point.from_extmark(mark)
+  local buffer = mark.buffer
+  local ns_id = mark.nsid
+  local mark_id = mark.id
+  local row, col = vim.api.nvim_buf_get_extmark_by_id(buffer, ns_id, mark_id)
+  return setmetatable({
+    row = row + 1,
+    col = col + 1,
+  }, Point)
 end
 
 --- @param row number
 ---@param col number
---- @return Point
+--- @return _neopilot.Point
 function Point:from_ts_point(row, col)
-    return setmetatable({
-        row = row + 1,
-        col = col + 1,
-    }, self)
+  return setmetatable({
+    row = row + 1,
+    col = col + 1,
+  }, self)
 end
 
 --- stores all 2 points
---- @param range Range
+--- @param range _neopilot.Range
 --- @return boolean
 function Point:in_ts_range(range)
-    return range:contains(self)
+  return range:contains(self)
 end
 
 --- vim.api.nvim_buf_get_text uses 0 based row and col
 --- @return number, number
 function Point:to_lua()
-    return self.row, self.col
+  return self.row, self.col
 end
 
 --- @return number, number
 function Point:to_lsp()
-    return self.row - 1, self.col - 1
+  return self.row - 1, self.col - 1
 end
 
 --- vim.api.nvim_buf_get_text uses 0 based row and col
 --- @return number, number
 function Point:to_vim()
-    return self.row - 1, self.col - 1
+  return self.row - 1, self.col - 1
 end
 
 function Point:to_one_zero_index()
-    return self.row, self.col - 1
+  return self.row, self.col - 1
 end
 
 --- treesitter uses 0 based row and col
 --- @return number, number
 function Point:to_ts()
-    return self.row - 1, self.col - 1
+  return self.row - 1, self.col - 1
 end
 
---- @param point Point
+--- @param point _neopilot.Point
 --- @return boolean
 function Point:gt(point)
-    return project(self) > project(point)
+  return project(self) > project(point)
 end
 
---- @param point Point
+--- @param point _neopilot.Point
 --- @return boolean
 function Point:lt(point)
-    return project(self) < project(point)
+  return project(self) < project(point)
 end
 
---- @param point Point
+--- @param point _neopilot.Point
 --- @return boolean
 function Point:lte(point)
-    return project(self) <= project(point)
+  return project(self) <= project(point)
 end
 
---- @param point Point
+--- @param point _neopilot.Point
 --- @return boolean
 function Point:gte(point)
-    return project(self) >= project(point)
+  return project(self) >= project(point)
 end
 
---- @param point Point
+--- @param point _neopilot.Point
 --- @return boolean
 function Point:eq(point)
-    return project(self) == project(point)
+  return project(self) == project(point)
 end
 
---- @class Range
---- @field start Point
---- @field end_ Point
+--- @param point _neopilot.Point
+--- @return _neopilot.Point
+function Point:add(point)
+  return Point:new(self.row + point.row, self.col + point.col)
+end
+
+--- @param point _neopilot.Point
+--- @return _neopilot.Point
+function Point:sub(point)
+  return Point:new(self.row - point.row, self.col - point.col)
+end
+
+--- @param mark _neopilot.Mark
+--- @return _neopilot.Point
+function Point.from_mark(mark)
+  --- buf extmark by id is a 0 based api
+  local pos =
+    vim.api.nvim_buf_get_extmark_by_id(mark.buffer, mark.nsid, mark.id, {})
+
+  return setmetatable({
+    row = pos[1] + 1,
+    col = pos[2] + 1,
+  }, Point)
+end
+
+--- @return _neopilot.Point
+function Point.from_visual_start() end
+
+--- @return _neopilot.Point
+function Point.from_visual_end()
+  --- make sure you dont allow visual line extend beyond the end of the
+  --- actual text line
+end
+
+--- @class _neopilot.Range
+--- @field start _neopilot.Point
+--- @field end_ _neopilot.Point
 --- @field buffer number
 local Range = {}
 Range.__index = Range
 
 ---@param buffer number
---- @param start Point
----@param end_ Point
+--- @param start _neopilot.Point
+---@param end_ _neopilot.Point
 function Range:new(buffer, start, end_)
-    return setmetatable({
-        start = start,
-        end_ = end_,
-        buffer = buffer,
-    }, self)
+  return setmetatable({
+    start = start,
+    end_ = end_,
+    buffer = buffer,
+  }, self)
 end
 
----@param node TSNode
+function Range.from_visual_selection()
+  local buffer = vim.api.nvim_get_current_buf()
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
+  local start = Point:new(start_pos[2], start_pos[3])
+  local end_ = Point:new(end_pos[2], end_pos[3])
+
+  --- visual line mode will select the end point for each row to be int max
+  --- which will cause marks to fail. so we have to correct it to the literal
+  --- row length
+  local end_r, _ = end_:to_vim()
+  local end_line =
+    vim.api.nvim_buf_get_lines(buffer, end_r, end_r + 1, false)[1]
+  local actual_end = Point:new(end_pos[2], math.min(end_pos[3], #end_line + 1))
+
+  return Range:new(buffer, start, actual_end)
+end
+
+---@param node _neopilot.treesitter.TSNode
 ---@param buffer number
----@return Range
+---@return _neopilot.Range
 function Range:from_ts_node(node, buffer)
-    -- ts is zero based
-    local start_row, start_col, _ = node:start()
-    local end_row, end_col, _ = node:end_()
-    local range = {
-        start = Point:from_ts_point(start_row, start_col),
-        end_ = Point:from_ts_point(end_row, end_col),
-        buffer = buffer,
-    }
+  -- ts is zero based
+  local start_row, start_col, _ = node:start()
+  local end_row, end_col, _ = node:end_()
+  local range = {
+    start = Point:from_ts_point(start_row, start_col),
+    end_ = Point:from_ts_point(end_row, end_col),
+    buffer = buffer,
+  }
 
-    return setmetatable(range, self)
+  return setmetatable(range, self)
 end
 
---- @param point Point
+---@param start _neopilot.Mark
+---@param end_ _neopilot.Mark
+---@return _neopilot.Range
+function Range.from_marks(start, end_)
+  local start_point = Point.from_mark(start)
+  local end_point = Point.from_mark(end_)
+  return Range:new(start.buffer, start_point, end_point)
+end
+
+--- @param replace_with string[]
+function Range:replace_text(replace_with)
+  local s_row, s_col = self.start:to_vim()
+  local e_row, e_col = self.end_:to_vim()
+  vim.api.nvim_buf_set_text(
+    self.buffer,
+    s_row,
+    s_col,
+    e_row,
+    e_col,
+    replace_with
+  )
+end
+
+--- @param point _neopilot.Point
 --- @return boolean
 function Range:contains(point)
-    local start = project(self.start)
-    local stop = project(self.end_)
-    local p = project(point)
-    return start <= p and p <= stop
+  local start = project(self.start)
+  local stop = project(self.end_)
+  local p = project(point)
+  return start <= p and p <= stop
 end
 
 --- @return string
 function Range:to_text()
-    local sr, sc = self.start:to_vim()
-    local er, ec = self.end_:to_vim()
+  local sr, sc = self.start:to_vim()
+  local er, ec = self.end_:to_vim()
 
-    -- note
-    -- this api is 0 index end exclusive for _only_ column
-    if ec == 0 then
-        ec = -1
-        er = er - 1
-    end
+  --- blank line vis selection
+  if sr == er and sc == ec then
+    ec = ec + 1
+  end
 
-    local text = vim.api.nvim_buf_get_text(self.buffer, sr, sc, er, ec, {})
-    return table.concat(text, "\n")
+  local text = vim.api.nvim_buf_get_text(self.buffer, sr, sc, er, ec, {})
+  return table.concat(text, "\n")
 end
 
---- @param range Range
+--- @param range _neopilot.Range
 --- @return boolean
 function Range:contains_range(range)
-    return self.start:lte(range.start) and self.end_:gte(range.end_)
+  return self.start:lte(range.start) and self.end_:gte(range.end_)
+end
+
+function Range:area()
+  local start = project(self.start)
+  local end_ = project(self.end_)
+  return end_ - start
 end
 
 function Range:to_string()
-    return string.format(
-        "range(%s,%s)",
-        self.start:to_string(),
-        self.end_:to_string()
-    )
+  return string.format(
+    "range(%s,%s)",
+    self.start:to_string(),
+    self.end_:to_string()
+  )
 end
 
 return {
-    Point = Point,
-    Range = Range,
+  Point = Point,
+  Range = Range,
 }

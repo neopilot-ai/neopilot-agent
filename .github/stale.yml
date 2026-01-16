@@ -1,0 +1,91 @@
+# Number of days of inactivity before an issue becomes stale
+# Default: 60
+daysUntilStale: 60
+
+# Number of days of inactivity before a stale issue is closed
+# Set to false to disable. If disabled, issues still need to be closed manually, but will remain marked as stale.
+daysUntilClose: 14
+
+# Issues with these labels will never be considered stale
+exemptLabels:
+  - pinned
+  - security
+  - "good first issue"
+  - "help wanted"
+
+# Set to true to ignore issues in a project
+exemptProjects: false
+
+# Set to true to ignore issues in an (external) milestone
+# This is useful if you want to keep issues in a future milestone from becoming stale.
+exemptMilestones: false
+
+# Label to use when marking an issue as stale
+staleLabel: "stale"
+
+# Comment to post when marking an issue as stale. Set to `false` to disable
+markComment: >
+  This issue has been automatically marked as stale because it has not had recent activity.
+  It will be closed if no further activity occurs. Thank you for your contributions.
+  
+  If this is still relevant, please:
+  - Add a comment to keep it open
+  - Remove the `stale` label
+  
+  Or close it if it's no longer needed.
+
+# Comment to post when closing a stale issue. Set to `false` to disable
+closeComment: >
+  This issue has been automatically closed because it had no recent activity.
+  If this is still an issue, feel free to reopen it or create a new one.
+
+# Limit the number of actions per hour, from 1 to 30. Default is 30
+limitPerRun: 10
+
+# Only issues or pull requests with all of these labels are checked for staleness.
+# If `anyOfLabels` is also specified, it will be ignored.
+onlyLabels: []
+
+# Issues or pull requests with at least one of these labels will be checked for staleness.
+# Set to `[]` to disable
+anyOfLabels:
+  - bug
+  - enhancement
+  - question
+  - documentation
+
+# Issues or pull requests with these labels will never be checked for staleness.
+exemptLabels:
+  - pinned
+  - security
+  - "good first issue"
+  - "help wanted"
+  - "wontfix"
+
+# Set to true to ignore issues in a milestone
+exemptMilestones: false
+
+# Set to true to ignore issues with an assignee
+# If an issue has an assignee, it will not be marked as stale
+exemptAssignees: true
+
+# Label to use when marking an issue as stale
+staleLabel: "stale"
+
+# Comment to post when marking an issue as stale. Set to `false` to disable
+markComment: >
+  This issue has been automatically marked as stale because it has not had
+  recent activity. It will be closed if no further activity occurs. Thank you
+  for your contributions.
+
+# Comment to post when removing the stale label.
+unmarkComment: false
+
+# Comment to post when closing a stale issue. Set to `false` to disable
+closeComment: >
+  This issue has been automatically closed because it did not receive any
+  activity in the last 14 days. If this is still relevant, please open a new
+  issue with updated details.
+
+# Limit the number of actions per hour, from 1 to 30. Default is 30.
+limitPerRun: 10
